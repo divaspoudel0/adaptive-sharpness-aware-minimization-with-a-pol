@@ -9,6 +9,7 @@ over epochs, mean +/- std over 3 seeds. Schedulers: Stochastic Polyak Scheduler
 import json
 import os
 import time
+import traceback
 
 import numpy as np
 import torch
@@ -47,28 +48,39 @@ class RandCropHFlip:
         return out
 
 
+class NormAug(torch.nn.Module):
+    """Normalize + random crop/flip (module-level so DataLoader can pickle it)."""
+
+    def __init__(self, mean, std, size=32, pad=4):
+        super().__init__()
+        self.mean = torch.tensor(mean).view(1, 3, 1, 1)
+        self.std = torch.tensor(std).view(1, 3, 1, 1)
+        self.size = size
+        self.pad = pad
+
+    def __call__(self, batch):
+        x, y = batch
+        x = x.numpy().astype(np.float32) / 255.0
+        x = RandCropHFlip(self.size, self.pad)(x)
+        x = torch.from_numpy(np.ascontiguousarray(x)).permute(0, 3, 1, 2)
+        return (x - self.mean) / self.std, y
+
+
+def _worker_seed(_):
+    np.random.seed()
+
+
 def make_loaders(dataset, batch_size, num_workers=2, data_root="/data", cache_dir=None):
     mean, std = CIFAR_MEAN_STD[dataset]
-    mean_t = torch.tensor(mean).view(1, 3, 1, 1)
-    std_t = torch.tensor(std).view(1, 3, 1, 1)
+    norm = NormAug(mean, std)
     x_tr, y_tr, x_te, y_te = load_cifar(dataset, cache_dir=cache_dir)
     train_ds = TensorDataset(torch.from_numpy(x_tr), torch.from_numpy(y_tr))
     test_ds = TensorDataset(torch.from_numpy(x_te), torch.from_numpy(y_te))
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
                               num_workers=num_workers, pin_memory=True,
-                              worker_init_fn=lambda _: np.random.seed())
+                              worker_init_fn=_worker_seed)
     test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False,
                              num_workers=num_workers, pin_memory=True)
-    aug = RandCropHFlip(32, 4)
-
-    def norm(batch):
-        x, y = batch
-        x = x.float().div_(255.0)
-        x = aug(x)
-        x = x.permute(0, 3, 1, 2)
-        x = (x - mean_t) / std_t
-        return x, y
-
     return train_loader, test_loader, norm, (10 if dataset == "cifar10" else 100)
 
 
@@ -165,27 +177,45 @@ def main(cfg, device=None, data_root="/data"):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("[cfg] " + json.dumps(cfg))
+    grid = cfg.get("grid") or [{}]
     seeds = cfg.get("seeds", [0])
-    results = []
-    for seed in seeds:
-        r = train_seed(cfg, seed, device, data_root)
-        results.append(r)
-    bests = [r["best_acc"] for r in results]
-    mean = float(np.mean(bests))
-    std = float(np.std(bests))
-    summary = {
-        "per_seed_best": bests,
-        "mean_best": mean,
-        "std_best": std,
-        "mean_final": float(np.mean([r["final_acc"] for r in results])),
-        "epochs": cfg.get("epochs", 100),
-    }
-    print("[RESULT] " + json.dumps(summary), flush=True)
+    all_summaries = {}
+    for item in grid:
+        item_cfg = dict(cfg)
+        item_cfg.update(item)
+        label = item_cfg.get("label") or item_cfg["scheduler"]
+        print(f"[grid] running label={label} config={json.dumps(item_cfg)}", flush=True)
+        try:
+            results = []
+            for seed in seeds:
+                r = train_seed(item_cfg, seed, device, data_root)
+                results.append(r)
+            bests = [r["best_acc"] for r in results]
+            mean = float(np.mean(bests))
+            std = float(np.std(bests))
+            summary = {
+                "label": label,
+                "per_seed_best": bests,
+                "mean_best": mean,
+                "std_best": std,
+                "mean_final": float(np.mean([r["final_acc"] for r in results])),
+                "epochs": item_cfg.get("epochs", 100),
+                "config": {k: item_cfg[k] for k in ("scheduler", "lr", "lr_min", "rho", "sam_normalized")
+                           if k in item_cfg},
+            }
+        except Exception as exc:
+            summary = {"label": label, "error": repr(exc)}
+            print(f"[FAILED] {label}: {exc!r}", flush=True)
+            traceback.print_exc()
+        all_summaries[label] = summary
+        print(f"[RESULT] {label}: {summary}", flush=True)
     # save results for the record
-    outdir = os.environ.get("REPRO_OUT", "/data")
+    outdir = os.environ.get("REPRO_OUT") or "/data"
+    if not os.access(outdir, os.W_OK):
+        outdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "results")
     os.makedirs(outdir, exist_ok=True)
-    tag = f"{cfg['dataset']}_{cfg['arch']}_{cfg['scheduler']}_rho{cfg.get('rho',0)}"
+    tag = f"{cfg['dataset']}_{cfg['arch']}_grid"
     with open(os.path.join(outdir, f"result_{tag}.json"), "w") as f:
-        json.dump({"cfg": cfg, "results": results, "summary": summary}, f, indent=2)
+        json.dump({"cfg": cfg, "summaries": all_summaries}, f, indent=2)
     print(f"[save] wrote {os.path.join(outdir, f'result_{tag}.json')}", flush=True)
-    return summary
+    return all_summaries
