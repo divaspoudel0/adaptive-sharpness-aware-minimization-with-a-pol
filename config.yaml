@@ -1,5 +1,26 @@
-mode: audit
-audit:
-  n: 100
-  d: 100
-  cond: 10.0
+mode: cifar
+dataset: cifar100
+arch: resnet32
+epochs: 100
+batch_size: 128
+weight_decay: 0.0005
+seeds: [0, 1, 2]
+sam_normalized: true
+grid:
+  - label: nsam-polyak-rho0.1
+    scheduler: polyak
+    rho: 0.1
+  - label: nsam-polyak-rho0.2
+    scheduler: polyak
+    rho: 0.2
+  - label: nsam-polyak-rho0.3
+    scheduler: polyak
+    rho: 0.3
+  - label: nsam-polyak-rho0.4
+    scheduler: polyak
+    rho: 0.4
+  - label: nsam-cosine-rho0.4
+    scheduler: cosine
+    lr: 0.1
+    lr_min: 0.001
+    rho: 0.4
