@@ -1,0 +1,5 @@
+mode: audit
+audit:
+  n: 100
+  d: 100
+  cond: 10.0
