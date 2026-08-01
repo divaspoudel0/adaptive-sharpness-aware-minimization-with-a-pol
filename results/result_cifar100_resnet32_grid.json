@@ -1,0 +1,27 @@
+{
+  "cfg": {
+    "mode": "cifar",
+    "dataset": "cifar100",
+    "arch": "resnet32",
+    "epochs": 2,
+    "batch_size": 128,
+    "weight_decay": 0.0005,
+    "rho": 0.2,
+    "seeds": [
+      0
+    ],
+    "cache_dir": "/home/acer/.cache/cifar_hf",
+    "grid": [
+      {
+        "label": "usam-polyak",
+        "scheduler": "polyak"
+      }
+    ]
+  },
+  "summaries": {
+    "usam-polyak": {
+      "label": "usam-polyak",
+      "error": "AttributeError(\"'numpy.ndarray' object has no attribute 'permute'\")"
+    }
+  }
+}

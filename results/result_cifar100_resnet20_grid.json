@@ -1,0 +1,37 @@
+{
+  "cfg": {
+    "mode": "cifar",
+    "dataset": "cifar100",
+    "arch": "resnet20",
+    "epochs": 1,
+    "batch_size": 128,
+    "weight_decay": 0.0005,
+    "rho": 0.2,
+    "seeds": [
+      0
+    ],
+    "cache_dir": "/home/acer/.cache/cifar_hf",
+    "grid": [
+      {
+        "label": "usam-polyak",
+        "scheduler": "polyak"
+      }
+    ]
+  },
+  "summaries": {
+    "usam-polyak": {
+      "label": "usam-polyak",
+      "per_seed_best": [
+        8.02
+      ],
+      "mean_best": 8.02,
+      "std_best": 0.0,
+      "mean_final": 8.02,
+      "epochs": 1,
+      "config": {
+        "scheduler": "polyak",
+        "rho": 0.2
+      }
+    }
+  }
+}
